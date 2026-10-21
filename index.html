@@ -48,12 +48,17 @@ const save=()=>{try{localStorage.setItem('dash',JSON.stringify(S))}catch(e){aler
 
 async function ask(p,sys,json){
   if(!S.set.key)throw new Error('Ajoute ta clé Gemini dans Réglages.');
-  const m=S.set.model,gc={};
-  if(/gemini-3/.test(m))gc.thinkingConfig={thinkingLevel:'minimal'};else if(/2\.5-flash/.test(m))gc.thinkingConfig={thinkingBudget:0};
-  if(json)gc.responseMimeType='application/json';
-  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+m+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':S.set.key},body:JSON.stringify({contents:[{parts:[{text:p}]}],generationConfig:gc,...(sys?{systemInstruction:{parts:[{text:sys}]}}:{})})});
-  const j=await r.json();if(!r.ok)throw new Error(j.error?.message||('Erreur '+r.status));
-  return (j.candidates?.[0]?.content?.parts||[]).map(x=>x.text).join('')||'(réponse vide)';
+  const m=S.set.model,T=/gemini-3/.test(m)?[{thinkingLevel:'minimal'},{thinkingLevel:'low'},null]:/2\.5-flash/.test(m)?[{thinkingBudget:0},null]:[null];
+  let last='Erreur inconnue';
+  for(let i=S.set.ti||0;i<T.length;i++){
+    const gc={};if(T[i])gc.thinkingConfig=T[i];if(json)gc.responseMimeType='application/json';
+    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+m+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':S.set.key},body:JSON.stringify({contents:[{parts:[{text:p}]}],generationConfig:gc,...(sys?{systemInstruction:{parts:[{text:sys}]}}:{})})});
+    const j=await r.json();
+    if(r.ok){S.set.ti=i;save();return (j.candidates?.[0]?.content?.parts||[]).map(x=>x.text).join('')||'(réponse vide)'}
+    last=j.error?.message||('Erreur '+r.status);
+    if(!/thinking/i.test(last))break;
+  }
+  throw new Error(last);
 }
 
 /* ===== Modules intégrés (même format que les modules importables) ===== */
@@ -139,7 +144,7 @@ function settings(){
   <div class=card><h3>Importer une mise à jour</h3><small>Fichier .json (module, disposition, style) ou sauvegarde. N’importe que des fichiers dont tu es sûr : ils s’exécutent dans l’app.</small><input id=f type=file accept=".json,application/json" style="margin-top:8px"><small id=im></small></div>
   <div class=card><h3>Sauvegarde</h3><button id=ex class=sec>Exporter mes données</button></div>
   <div class=card><h3>Modules importés</h3>${Object.keys(S.mods).map(i=>`<div class=li><span>${esc(i)}</span><a data-r="${esc(i)}">Retirer</a></div>`).join('')||'<small>Aucun pour l’instant.</small>'}</div>`;
-  $('#sv').onclick=()=>{S.set.key=$('#key').value.trim();S.set.model=$('#mod').value.trim()||'gemini-2.5-flash';save();$('#sv').textContent='Enregistré ✓'};
+  $('#sv').onclick=()=>{S.set.key=$('#key').value.trim();S.set.model=$('#mod').value.trim()||'gemini-2.5-flash';S.set.ti=0;save();$('#sv').textContent='Enregistré ✓'};
   $('#f').onchange=async e=>{try{
     const j=JSON.parse(await e.target.files[0].text()),p=j.state||j;
     if(p.data)S.data=p.data;
