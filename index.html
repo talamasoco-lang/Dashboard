@@ -49,12 +49,12 @@ const save=()=>{try{localStorage.setItem('dash',JSON.stringify(S))}catch(e){aler
 async function ask(p,sys,json){
   if(!S.set.key)throw new Error('Ajoute ta clé Gemini dans Réglages.');
   const m=S.set.model,T=/gemini-3/.test(m)?[{thinkingLevel:'minimal'},{thinkingLevel:'low'},null]:/2\.5-flash/.test(m)?[{thinkingBudget:0},null]:[null];
-  let last='Erreur inconnue';
+  let last='Erreur inconnue';const t0=Date.now();
   for(let i=S.set.ti||0;i<T.length;i++){
     const gc={};if(T[i])gc.thinkingConfig=T[i];if(json)gc.responseMimeType='application/json';
     const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+m+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':S.set.key},body:JSON.stringify({contents:[{parts:[{text:p}]}],generationConfig:gc,...(sys?{systemInstruction:{parts:[{text:sys}]}}:{})})});
     const j=await r.json();
-    if(r.ok){S.set.ti=i;save();return (j.candidates?.[0]?.content?.parts||[]).map(x=>x.text).join('')||'(réponse vide)'}
+    if(r.ok){S.set.ti=i;ask.t=(Date.now()-t0)/1000;save();return (j.candidates?.[0]?.content?.parts||[]).map(x=>x.text).join('')||'(réponse vide)'}
     last=j.error?.message||('Erreur '+r.status);
     if(!/thinking/i.test(last))break;
   }
@@ -71,7 +71,7 @@ render(el,a){
   <div class=card><input id=n placeholder="Ex : 2 œufs et une tartine"><div class=row><input id=k type=number placeholder="kcal"><button id=ia class=sec>✨ Estimer</button></div><button id=ad>Ajouter</button><small id=m></small></div>
   <div class=card>${td.map(x=>`<div class=li><span>${esc(x.n)}</span><span>${x.k} kcal <a data-i="${log.indexOf(x)}">✕</a></span></div>`).join('')||'<small>Rien d’ajouté aujourd’hui.</small>'}</div>
   <div class=card><h3>Objectif quotidien (kcal)</h3><input id=g type=number value="${goal}"></div>`;
-  q('#ia').onclick=async()=>{const n=q('#n').value.trim();if(!n)return;q('#m').textContent='Estimation…';try{const t=await a.ask('Estime les calories totales de : '+n+'. Réponds uniquement par un nombre entier.');q('#k').value=(t.match(/\d+/)||[''])[0];q('#m').textContent='Estimation ajoutée, vérifie puis ajoute.'}catch(e){q('#m').textContent=e.message}};
+  q('#ia').onclick=async()=>{const n=q('#n').value.trim();if(!n)return;q('#m').textContent='Estimation…';try{const t=await a.ask('Estime les calories totales de : '+n+'. Réponds uniquement par un nombre entier.');q('#k').value=(t.match(/\d+/)||[''])[0];q('#m').textContent='Estimé en '+ask.t.toFixed(1)+' s. Vérifie puis ajoute.'}catch(e){q('#m').textContent=e.message}};
   q('#ad').onclick=()=>{const n=q('#n').value.trim(),k=+q('#k').value;if(!n||!k)return;a.set('log',[...log,{d:today(),n,k}]);a.refresh()};
   el.querySelectorAll('[data-i]').forEach(x=>x.onclick=()=>{log.splice(+x.dataset.i,1);a.set('log',log);a.refresh()});
   q('#g').onchange=e=>{a.set('goal',+e.target.value||2000);a.refresh()};
@@ -112,7 +112,7 @@ render(el,a){
         else if(x.do=='task'&&x.text){D('pr','t',[]).push({t:String(x.text),p:String(x.project||''),x:0});done.push('✓ Projets : '+x.text)}
       }
       save();
-      r.textContent=(done.length?done.join('\n')+'\n\n':'Rien n’a été modifié dans tes modules.\n\n')+(j.say||'');
+      r.textContent=(done.length?done.join('\n')+'\n\n':'Rien n’a été modifié dans tes modules.\n\n')+(j.say||'')+'\n⏱ '+ask.t.toFixed(1)+' s';
     }catch(e){r.textContent=e.message}
   };
 }}};
@@ -141,10 +141,12 @@ function show(id){
 function settings(){
   $('#bk').hidden=false;$('#t').textContent='Réglages';const v=$('#v');
   v.innerHTML=`<div class=card><h3>IA (Gemini)</h3><input id=key type=password placeholder="Colle ta clé API" value="${esc(S.set.key)}"><input id=mod value="${esc(S.set.model)}"><button id=sv>Enregistrer</button></div>
+  <div class=card><h3>Modèles disponibles</h3><small>Un modèle « lite » est en général plus rapide.</small><button id=lm class=sec style="margin-top:8px">Lister les modèles flash</button><div id=ml></div></div>
   <div class=card><h3>Importer une mise à jour</h3><small>Fichier .json (module, disposition, style) ou sauvegarde. N’importe que des fichiers dont tu es sûr : ils s’exécutent dans l’app.</small><input id=f type=file accept=".json,application/json" style="margin-top:8px"><small id=im></small></div>
   <div class=card><h3>Sauvegarde</h3><button id=ex class=sec>Exporter mes données</button></div>
   <div class=card><h3>Modules importés</h3>${Object.keys(S.mods).map(i=>`<div class=li><span>${esc(i)}</span><a data-r="${esc(i)}">Retirer</a></div>`).join('')||'<small>Aucun pour l’instant.</small>'}</div>`;
   $('#sv').onclick=()=>{S.set.key=$('#key').value.trim();S.set.model=$('#mod').value.trim()||'gemini-2.5-flash';S.set.ti=0;save();$('#sv').textContent='Enregistré ✓'};
+  $('#lm').onclick=async()=>{const o=$('#ml');o.textContent='…';try{const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100',{headers:{'x-goog-api-key':S.set.key}}),j=await r.json();if(!r.ok)throw new Error(j.error?.message||r.status);const l=(j.models||[]).filter(x=>/flash/i.test(x.name)&&(x.supportedGenerationMethods||[]).includes('generateContent')).map(x=>x.name.replace('models/',''));o.innerHTML=l.map(n=>`<div class=li><span>${esc(n)}</span><a data-m="${esc(n)}">Choisir</a></div>`).join('')||'<small>Aucun modèle flash trouvé.</small>';o.querySelectorAll('[data-m]').forEach(x=>x.onclick=()=>{S.set.model=x.dataset.m;S.set.ti=0;save();$('#mod').value=x.dataset.m;$('#lm').textContent='Modèle choisi : '+x.dataset.m})}catch(e){o.textContent=e.message}};
   $('#f').onchange=async e=>{try{
     const j=JSON.parse(await e.target.files[0].text()),p=j.state||j;
     if(p.data)S.data=p.data;
