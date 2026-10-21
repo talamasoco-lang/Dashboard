@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#161b26">
+<link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png">
+<title>Mon Dashboard</title>
+<style>
+:root{--bg:#161b26;--card:#202737;--tx:#eceff6;--mut:#8f9ab3;--ac:#8aa4ff;--ln:#2d3650;--bad:#ff8a8a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+:root:not([data-theme=dark]){}
+@media(prefers-color-scheme:light){:root{--bg:#f3f4f8;--card:#fff;--tx:#1b2030;--mut:#667089;--ac:#3e5bd6;--ln:#dde1ec;--bad:#c93d3d}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh}
+header{position:sticky;top:0;display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--bg);border-bottom:1px solid var(--ln);z-index:5}
+header h1{font-size:19px;margin:0;font-weight:650}
+#bk{background:none;border:0;color:var(--ac);font-size:22px;padding:0 6px;width:auto}
+main{padding:14px 16px 40px;max-width:640px;margin:auto}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tile{background:var(--card);border:1px solid var(--ln);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:2px;min-height:110px}
+.tile:active{border-color:var(--ac)}
+.ic{font-size:28px}
+.tile b{font-weight:600}
+small{color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--ln);border-radius:12px;padding:14px;margin-bottom:12px}
+h3{margin:0 0 8px;font-size:15px;color:var(--mut);font-weight:600}
+input,select,textarea{width:100%;background:var(--bg);color:var(--tx);border:1px solid var(--ln);border-radius:9px;padding:11px;font:inherit;margin-bottom:8px}
+input[type=checkbox]{width:auto;margin:0 8px 0 0}
+button{width:100%;background:var(--ac);color:#fff;border:0;border-radius:9px;padding:12px;font:inherit;font-weight:600;margin-top:2px}
+button.sec{background:transparent;color:var(--ac);border:1px solid var(--ac)}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--ln)}
+.li:last-child{border:0}
+.li a{color:var(--mut);padding:4px 8px}
+.bar{height:8px;background:var(--bg);border-radius:6px;margin-top:10px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ac)}
+.dn{text-decoration:line-through;color:var(--mut)}
+.big{font-size:30px;font-weight:700}
+</style><style id="u"></style></head>
+<body>
+<header><button id="bk" hidden>←</button><h1 id="t">Mon Dashboard</h1></header>
+<main id="v"></main>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+let S={};try{S=JSON.parse(localStorage.getItem('dash')||'{}')||{}}catch(e){}
+S.data=S.data||{};S.mods=S.mods||{};S.css=S.css||'';S.set=S.set||{key:'',model:'gemini-2.5-flash'};
+const save=()=>{try{localStorage.setItem('dash',JSON.stringify(S))}catch(e){alert('Stockage plein ou bloqué')}};
+
+async function ask(p,sys){
+  if(!S.set.key)throw new Error('Ajoute ta clé Gemini dans Réglages.');
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+S.set.model+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':S.set.key},body:JSON.stringify({contents:[{parts:[{text:p}]}],...(sys?{systemInstruction:{parts:[{text:sys}]}}:{})})});
+  const j=await r.json();if(!r.ok)throw new Error(j.error?.message||('Erreur '+r.status));
+  return (j.candidates?.[0]?.content?.parts||[]).map(x=>x.text).join('')||'(réponse vide)';
+}
+
+/* ===== Modules intégrés (même format que les modules importables) ===== */
+const B={
+cal:{name:'Calories',icon:'🔥',
+summary:a=>a.get('log',[]).filter(x=>x.d==today()).reduce((s,x)=>s+x.k,0)+' / '+a.get('goal',2000)+' kcal',
+render(el,a){
+  const q=s=>el.querySelector(s),log=a.get('log',[]),goal=a.get('goal',2000),td=log.filter(x=>x.d==today()),tot=td.reduce((s,x)=>s+x.k,0);
+  el.innerHTML=`<div class=card><span class=big>${tot}</span> <small>/ ${goal} kcal aujourd’hui</small><div class=bar><i style="width:${Math.min(100,tot/goal*100)}%"></i></div></div>
+  <div class=card><input id=n placeholder="Ex : 2 œufs et une tartine"><div class=row><input id=k type=number placeholder="kcal"><button id=ia class=sec>✨ Estimer</button></div><button id=ad>Ajouter</button><small id=m></small></div>
+  <div class=card>${td.map(x=>`<div class=li><span>${esc(x.n)}</span><span>${x.k} kcal <a data-i="${log.indexOf(x)}">✕</a></span></div>`).join('')||'<small>Rien d’ajouté aujourd’hui.</small>'}</div>
+  <div class=card><h3>Objectif quotidien (kcal)</h3><input id=g type=number value="${goal}"></div>`;
+  q('#ia').onclick=async()=>{const n=q('#n').value.trim();if(!n)return;q('#m').textContent='Estimation…';try{const t=await a.ask('Estime les calories totales de : '+n+'. Réponds uniquement par un nombre entier.');q('#k').value=(t.match(/\d+/)||[''])[0];q('#m').textContent='Estimation ajoutée, vérifie puis ajoute.'}catch(e){q('#m').textContent=e.message}};
+  q('#ad').onclick=()=>{const n=q('#n').value.trim(),k=+q('#k').value;if(!n||!k)return;a.set('log',[...log,{d:today(),n,k}]);a.refresh()};
+  el.querySelectorAll('[data-i]').forEach(x=>x.onclick=()=>{log.splice(+x.dataset.i,1);a.set('log',log);a.refresh()});
+  q('#g').onchange=e=>{a.set('goal',+e.target.value||2000);a.refresh()};
+}},
+wl:{name:'Watchlist',icon:'🎬',
+summary:a=>a.get('items',[]).filter(x=>x.s==0).length+' à voir',
+render(el,a){
+  const q=s=>el.querySelector(s),it=a.get('items',[]),ST=['À voir','En cours','Vu'];
+  el.innerHTML=`<div class=card><input id=t placeholder="Titre"><div class=row><select id=y><option>Film<option>Série<option>Anime</select><button id=ad>Ajouter</button></div></div>`+
+  ST.map((s,si)=>{const l=it.map((x,i)=>[x,i]).filter(([x])=>x.s==si);return l.length?`<div class=card><h3>${s}</h3>${l.map(([x,i])=>`<div class=li><span>${esc(x.t)} <small>${esc(x.y)}</small></span><span><a data-n="${i}">Avancer</a><a data-d="${i}">✕</a></span></div>`).join('')}</div>`:''}).join('');
+  q('#ad').onclick=()=>{const t=q('#t').value.trim();if(!t)return;a.set('items',[...it,{t,y:q('#y').value,s:0}]);a.refresh()};
+  el.querySelectorAll('[data-n]').forEach(x=>x.onclick=()=>{const o=it[+x.dataset.n];o.s=(o.s+1)%3;a.set('items',it);a.refresh()});
+  el.querySelectorAll('[data-d]').forEach(x=>x.onclick=()=>{it.splice(+x.dataset.d,1);a.set('items',it);a.refresh()});
+}},
+pr:{name:'Projets',icon:'📌',
+summary:a=>a.get('t',[]).filter(x=>!x.x).length+' tâches ouvertes',
+render(el,a){
+  const q=s=>el.querySelector(s),t=a.get('t',[]),ps=[...new Set(t.map(x=>x.p||'Général'))];
+  el.innerHTML=`<div class=card><input id=t placeholder="Nouvelle tâche"><input id=p placeholder="Projet (optionnel)"><button id=ad>Ajouter</button></div>`+
+  ps.map(p=>`<div class=card><h3>${esc(p)}</h3>${t.map((x,i)=>[x,i]).filter(([x])=>(x.p||'Général')==p).map(([x,i])=>`<div class=li><label><input type=checkbox data-c="${i}" ${x.x?'checked':''}><span class="${x.x?'dn':''}">${esc(x.t)}</span></label><a data-d="${i}">✕</a></div>`).join('')}</div>`).join('');
+  q('#ad').onclick=()=>{const n=q('#t').value.trim();if(!n)return;a.set('t',[...t,{t:n,p:q('#p').value.trim(),x:0}]);a.refresh()};
+  el.querySelectorAll('[data-c]').forEach(x=>x.onchange=()=>{t[+x.dataset.c].x=x.checked?1:0;a.set('t',t);a.refresh()});
+  el.querySelectorAll('[data-d]').forEach(x=>x.onclick=()=>{t.splice(+x.dataset.d,1);a.set('t',t);a.refresh()});
+}},
+ia:{name:'Assistant',icon:'✨',
+render(el,a){
+  el.innerHTML=`<div class=card><textarea id=p rows=4 placeholder="Pose une question…"></textarea><button id=go>Envoyer</button></div><div class=card id=r><small>La réponse s’affichera ici.</small></div>`;
+  const r=el.querySelector('#r');r.style.whiteSpace='pre-wrap';
+  el.querySelector('#go').onclick=async()=>{const p=el.querySelector('#p').value.trim();if(!p)return;r.textContent='…';try{r.textContent=await a.ask(p,'Tu es l’assistant personnel de mon dashboard. Réponds en français, de façon brève.')}catch(e){r.textContent=e.message}};
+}}};
+
+/* ===== Moteur ===== */
+const api=id=>({get:(k,d)=>S.data[id]?.[k]??d,set:(k,v)=>{(S.data[id]=S.data[id]||{})[k]=v;save()},ask,esc,today,refresh:()=>show(id)});
+let M={};
+function mods(){
+  const m={...B};
+  for(const [id,x] of Object.entries(S.mods)){
+    try{m[id]={name:x.name||id,icon:x.icon||'🧩',render:new Function('el','api',x.code),summary:x.summary?new Function('api',x.summary):null}}catch(e){console.error(id,e)}
+  }
+  return m;
+}
+function home(){
+  M=mods();$('#u').textContent=S.css;$('#bk').hidden=true;$('#t').textContent='Mon Dashboard';
+  const L=S.layout||[],order=[...L.filter(i=>M[i]),...Object.keys(M).filter(i=>!L.includes(i))];
+  $('#v').innerHTML='<div class=grid>'+order.map(i=>{let s='';try{s=M[i].summary?M[i].summary(api(i)):''}catch(e){}return `<div class=tile data-o="${esc(i)}"><div class=ic>${esc(M[i].icon)}</div><b>${esc(M[i].name)}</b><small>${esc(s)}</small></div>`}).join('')+'<div class=tile data-o="_set"><div class=ic>⚙️</div><b>Réglages</b><small>Clé IA, mises à jour</small></div></div>';
+  $('#v').querySelectorAll('[data-o]').forEach(x=>x.onclick=()=>show(x.dataset.o));
+}
+function show(id){
+  if(id=='_set')return settings();
+  $('#bk').hidden=false;$('#t').textContent=M[id].name;const el=$('#v');el.innerHTML='';
+  try{M[id].render(el,api(id))}catch(e){el.innerHTML='<div class=card>Erreur dans ce module : '+esc(e.message)+'</div>'}
+}
+function settings(){
+  $('#bk').hidden=false;$('#t').textContent='Réglages';const v=$('#v');
+  v.innerHTML=`<div class=card><h3>IA (Gemini)</h3><input id=key type=password placeholder="Colle ta clé API" value="${esc(S.set.key)}"><input id=mod value="${esc(S.set.model)}"><button id=sv>Enregistrer</button></div>
+  <div class=card><h3>Importer une mise à jour</h3><small>Fichier .json (module, disposition, style) ou sauvegarde. N’importe que des fichiers dont tu es sûr : ils s’exécutent dans l’app.</small><input id=f type=file accept=".json,application/json" style="margin-top:8px"><small id=im></small></div>
+  <div class=card><h3>Sauvegarde</h3><button id=ex class=sec>Exporter mes données</button></div>
+  <div class=card><h3>Modules importés</h3>${Object.keys(S.mods).map(i=>`<div class=li><span>${esc(i)}</span><a data-r="${esc(i)}">Retirer</a></div>`).join('')||'<small>Aucun pour l’instant.</small>'}</div>`;
+  $('#sv').onclick=()=>{S.set.key=$('#key').value.trim();S.set.model=$('#mod').value.trim()||'gemini-2.5-flash';save();$('#sv').textContent='Enregistré ✓'};
+  $('#f').onchange=async e=>{try{
+    const j=JSON.parse(await e.target.files[0].text()),p=j.state||j;
+    if(p.data)S.data=p.data;
+    if(p.mods)Object.assign(S.mods,p.mods);
+    (p.modules||[]).forEach(m=>{if(m.id&&m.code)S.mods[m.id]=m});
+    if(p.layout)S.layout=p.layout;
+    if(p.css!=null)S.css=p.css;
+    save();M=mods();$('#u').textContent=S.css;$('#im').textContent='Importé ✓ Retourne à l’accueil.';
+  }catch(err){$('#im').textContent='Fichier invalide : '+err.message}};
+  $('#ex').onclick=()=>{const b=new Blob([JSON.stringify({state:{data:S.data,mods:S.mods,layout:S.layout,css:S.css}},null,1)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='dashboard-sauvegarde-'+today()+'.json';a.click()};
+  v.querySelectorAll('[data-r]').forEach(x=>x.onclick=()=>{delete S.mods[x.dataset.r];save();settings()});
+}
+$('#bk').onclick=home;
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+home();
+</script></body></html>
