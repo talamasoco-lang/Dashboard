@@ -46,9 +46,12 @@ let S={};try{S=JSON.parse(localStorage.getItem('dash')||'{}')||{}}catch(e){}
 S.data=S.data||{};S.mods=S.mods||{};S.css=S.css||'';S.set=S.set||{key:'',model:'gemini-2.5-flash'};
 const save=()=>{try{localStorage.setItem('dash',JSON.stringify(S))}catch(e){alert('Stockage plein ou bloqué')}};
 
-async function ask(p,sys){
+async function ask(p,sys,json){
   if(!S.set.key)throw new Error('Ajoute ta clé Gemini dans Réglages.');
-  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+S.set.model+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':S.set.key},body:JSON.stringify({contents:[{parts:[{text:p}]}],...(sys?{systemInstruction:{parts:[{text:sys}]}}:{})})});
+  const m=S.set.model,gc={};
+  if(/gemini-3/.test(m))gc.thinkingConfig={thinkingLevel:'minimal'};else if(/2\.5-flash/.test(m))gc.thinkingConfig={thinkingBudget:0};
+  if(json)gc.responseMimeType='application/json';
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+m+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':S.set.key},body:JSON.stringify({contents:[{parts:[{text:p}]}],generationConfig:gc,...(sys?{systemInstruction:{parts:[{text:sys}]}}:{})})});
   const j=await r.json();if(!r.ok)throw new Error(j.error?.message||('Erreur '+r.status));
   return (j.candidates?.[0]?.content?.parts||[]).map(x=>x.text).join('')||'(réponse vide)';
 }
@@ -90,9 +93,23 @@ render(el,a){
 }},
 ia:{name:'Assistant',icon:'✨',
 render(el,a){
-  el.innerHTML=`<div class=card><textarea id=p rows=4 placeholder="Pose une question…"></textarea><button id=go>Envoyer</button></div><div class=card id=r><small>La réponse s’affichera ici.</small></div>`;
+  el.innerHTML=`<div class=card><textarea id=p rows=3 placeholder="Ex : ajoute Forrest Gump à ma watchlist"></textarea><button id=go>Envoyer</button></div><div class=card id=r><small>Je peux ajouter à la Watchlist, aux Calories et aux Projets, ou simplement répondre.</small></div>`;
   const r=el.querySelector('#r');r.style.whiteSpace='pre-wrap';
-  el.querySelector('#go').onclick=async()=>{const p=el.querySelector('#p').value.trim();if(!p)return;r.textContent='…';try{r.textContent=await a.ask(p,'Tu es l’assistant personnel de mon dashboard. Réponds en français, de façon brève.')}catch(e){r.textContent=e.message}};
+  const D=(id,k,d)=>(S.data[id]=S.data[id]||{},S.data[id][k]=S.data[id][k]||d);
+  el.querySelector('#go').onclick=async()=>{
+    const p=el.querySelector('#p').value.trim();if(!p)return;r.textContent='…';
+    const sys='Tu es l’assistant d’un dashboard perso. Réponds UNIQUEMENT en JSON : {"say":"réponse courte en français","actions":[]}. Actions possibles : {"do":"wl","title":"…","type":"Film|Série|Anime"} ajoute à la watchlist ; {"do":"cal","name":"…","kcal":nombre} ajoute un repas d’aujourd’hui ; {"do":"task","text":"…","project":"…"} ajoute une tâche. Ajoute une action seulement si l’utilisateur le demande clairement, sinon actions est []. Dans "say", n’affirme jamais avoir ajouté quelque chose : l’application confirme elle-même.';
+    try{
+      const j=JSON.parse((await ask(p,sys,true)).replace(/```json|```/g,'')),done=[];
+      for(const x of j.actions||[]){
+        if(x.do=='wl'&&x.title){D('wl','items',[]).push({t:String(x.title),y:['Film','Série','Anime'].includes(x.type)?x.type:'Film',s:0});done.push('✓ Watchlist : '+x.title)}
+        else if(x.do=='cal'&&+x.kcal>0&&x.name){D('cal','log',[]).push({d:today(),n:String(x.name),k:Math.round(+x.kcal)});done.push('✓ Calories : '+x.name+' ('+Math.round(+x.kcal)+' kcal)')}
+        else if(x.do=='task'&&x.text){D('pr','t',[]).push({t:String(x.text),p:String(x.project||''),x:0});done.push('✓ Projets : '+x.text)}
+      }
+      save();
+      r.textContent=(done.length?done.join('\n')+'\n\n':'Rien n’a été modifié dans tes modules.\n\n')+(j.say||'');
+    }catch(e){r.textContent=e.message}
+  };
 }}};
 
 /* ===== Moteur ===== */
